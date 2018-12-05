@@ -1,0 +1,148 @@
+---
+title: "News Around the World"
+author: "Pedro William"
+date: "5 de dezembro de 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Packages
+
+```{r}
+library(tidyverse)
+library(tidytext)
+library(tm)
+library(ggraph)
+library(lubridate)
+library(maps)
+library(widyr)
+library(igraph)
+library(ggrepel)
+
+```
+
+
+
+```{r}
+world_news <- read_csv("data_news.txt") %>% select(-X1) %>% mutate(id = row_number()) %>% select(id, everything())
+```
+
+
+#By country
+
+```{r}
+n_news_country <- world_news %>% group_by(name) %>% 
+               summarise(news = n()) %>% 
+               arrange(desc(news))
+```
+
+
+
+#Maps
+
+```{r}
+world_map <- map_data("world") %>% mutate(region = case_when(region == "USA" ~ "US",
+                                                             TRUE ~ region))
+
+
+news_map <-  world_map %>% left_join(n_news_country, by = c("region" = "name")) 
+
+
+
+news_map %>% filter(!is.na(news)) %>% 
+ggplot() +
+  geom_polygon(aes(x = long, y = lat, group = group, fill = news), color = "black") +
+  scale_fill_gradient2(low = "red", high = "blue", mid = median(news_map$news)) +
+  theme_void() +
+  labs(title = "Country with most news",
+       subtitle = "Between 10-23 and 11-23",
+       caption = "Source: Github")
+
+
+
+
+
+
+```
+
+
+#Text Mining
+```{r}
+
+stop_words_my <- c(stopwords("en"), stopwords("german"), stopwords("french"), stopwords("spanish"))
+
+
+tokens_unnested <- world_news %>% mutate(text = removeNumbers(removePunctuation(text))) %>% 
+                                  unnest_tokens(word, text) %>%
+                                  filter(!(word %in% c(stop_words_my, "u", "r", "di", "f")))
+
+tokens_country <- tokens_unnested %>% group_by(name, word) %>% 
+                    filter(n() >= 20) %>%
+                    summarise(n = n()) %>% 
+                    ungroup()
+
+
+tokens_country %>% group_by(name) %>% 
+                   top_n(3)
+
+
+
+
+
+
+```
+
+
+
+#Graph relations
+
+```{r}
+
+
+word_pairs <- tokens_unnested %>% pairwise_count(word, id, sort = TRUE)
+
+  word_pairs <- word_pairs %>%
+  mutate(to_filter = as.numeric(row.names(word_pairs)) %% 2) %>% filter(to_filter == 0) %>%
+  mutate(to_filter = NULL) ##Remove obvious duplicates
+  
+
+set.seed(28)
+word_pairs %>% 
+  filter(n >= 300) %>% 
+  graph_from_data_frame() %>% 
+  ggraph(layout = "fr") + 
+  geom_edge_link(aes(alpha = n, edge_width = n),
+                 check_overlap = TRUE,
+                 show.legend = FALSE) +
+  geom_node_point(size = 6,
+                  show.legend = FALSE,
+                  color = "red",
+                  alpha = 0.6) +
+  geom_node_text(aes(label = name),
+                 repel = TRUE,
+                 color = "#666666",
+                 fontface = "bold") +
+  theme_void() +
+  theme(
+    panel.grid = element_line(color = "white", size = 0.05),
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank(),
+    legend.position = "bottom",
+    plot.background = element_rect(fill = "white"),
+    plot.title = element_text(color = "black",face = "bold"),
+    plot.subtitle = element_text(size = 13, color = "White",face = "bold"),
+    plot.caption = element_text(size = 10, color = "White"),
+    legend.text = element_text(color = "white", face = "bold"),
+    legend.title = element_text(color = "white", face = "bold")
+   ) +
+  labs(title = "Most common pairwise words in news between 10-23 and 11-23")
+  
+
+
+
+
+```
+
